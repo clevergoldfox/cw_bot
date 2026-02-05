@@ -19,6 +19,8 @@ from slack_sdk.errors import SlackApiError
 SLACK_BOT_TOKEN = "xoxp-9550131875088-9550131925200-10439629163507-5af893dec1ea669a630b237666ac5354"
 CHANNEL_ID = "C0ADGTM2F5X"
 
+slack_client = WebClient(token=SLACK_BOT_TOKEN)
+
 WEBHOOK_URL = "https://discord.com/api/webhooks/1451104878800670913/xOdH4MvJfd4RoN-Htk8Wm-YqsCBFZeE3AOH0E-kn7hvK0etHYp7kzO-KO9DIzNvZC6pW"
 
 LISTING_URL = "https://www.lancers.jp/work/search/system?open=1&ref=header_menu"
