@@ -13,6 +13,12 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+
+SLACK_BOT_TOKEN = "xoxp-9550131875088-9550131925200-10439629163507-5af893dec1ea669a630b237666ac5354"
+CHANNEL_ID = "C0ADGTM2F5X"
+
 WEBHOOK_URL = "https://discord.com/api/webhooks/1451104878800670913/xOdH4MvJfd4RoN-Htk8Wm-YqsCBFZeE3AOH0E-kn7hvK0etHYp7kzO-KO9DIzNvZC6pW"
 
 LISTING_URL = "https://www.lancers.jp/work/search/system?open=1&ref=header_menu"
@@ -278,6 +284,14 @@ def show_noti(job_json, index):
             }
         ]
     }
+
+    try:
+        response = slack_client.chat_postMessage(
+            channel=CHANNEL_ID,
+            text = "Lancers New Task\n" + category + "\n" + job_json['title'] + job_json['url'] + "\nPayment: " + job_json['budget']
+        )
+    except SlackApiError as e:
+        print(f"Error: {e.response['error']}")
     
     # response = requests.post(WEBHOOK_URL, json=data)
 
@@ -327,7 +341,7 @@ if __name__ == "__main__":
                     if job:
                         pre_systems[i%3].append(job['id'])
                         if job['id'] not in pre_systems[i%3] and count[i%3] > 0:
-                        # if job['id'] not in systems:
+                        # if job['id'] not in pre_systems[i%3]:
                             pre_systems[i%3].append(job['id'])
                             show_noti(job, categories[i%3])
                 
