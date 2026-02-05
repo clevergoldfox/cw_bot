@@ -169,24 +169,37 @@ def show_noti(job_json, index):
     }
 
     try:
-        response = slack_client.chat_postMessage(
+        main = slack_client.chat_postMessage(
             channel=CHANNEL_ID,
             text = (
-    "Crowdworks New Task\n"
-    + category + "\n"
-    + job_json['title']
-    + "  ("
-    + (
-        job_json['payment']['payment_type']
-        + "  "
-        + str(job_json['payment']['min_budget']) + "円"
-        if job_json['payment']['payment_type'] != 'undefined'
-        else "Undefined"
-      )
-    + ")\n"
-    + "https://crowdworks.jp/public/jobs/"
-    + str(job_json['id'])
-)
+                "Crowdworks New Task\n"
+                + category + "\n"
+                + job_json['title']
+                + "  ("
+                + (
+                    job_json['payment']['payment_type']
+                    + "  "
+                    + str(job_json['payment']['min_budget']) + "円"
+                    if job_json['payment']['payment_type'] != 'undefined'
+                    else "Undefined"
+                )
+                + ")\n"
+                + "https://crowdworks.jp/public/jobs/"
+                + str(job_json['id'])
+            )
+        )
+
+        ts = main["ts"]
+        job_description = get_bid(job_json['id'])
+
+        slack_client.chat_postMessage(
+            channel=CHANNEL_ID,
+            thread_ts=ts,
+            text=f""" {job_json['title']}\n
+
+            ```text
+            {job_description}
+            ```"""
         )
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
