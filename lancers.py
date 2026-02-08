@@ -37,12 +37,67 @@ GOOGLE_SERVICE_ACCOUNT_FILE = Path(os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "ser
 _worksheet_cache: Optional[Any] = None
 
 
-def fetch_html(url: str) -> str:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "ja,en;q=0.9",
-    }
-    resp = requests.get(url, headers=headers, timeout=15)
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept-Language": "ja,en;q=0.9",
+}
+
+DEFAULT_COOKIES_PATH = Path(os.getenv("LANCERS_COOKIES", "lancers_cookies.json"))
+
+
+def _apply_selenium_cookies_to_session(session: requests.Session, cookies: List[Dict[str, Any]]) -> None:
+    from requests.cookies import create_cookie
+
+    default_domain = urlparse(BASE_URL).hostname or "www.lancers.jp"
+    for cookie in cookies:
+        name = cookie.get("name")
+        if not name:
+            continue
+
+        domain = cookie.get("domain") or default_domain
+        value = cookie.get("value") or ""
+        path = cookie.get("path") or "/"
+        secure = bool(cookie.get("secure"))
+        expires = cookie.get("expiry")
+
+        rest: Dict[str, Any] = {}
+        if "httpOnly" in cookie:
+            rest["HttpOnly"] = cookie.get("httpOnly")
+
+        session.cookies.set_cookie(
+            create_cookie(
+                name=name,
+                value=value,
+                domain=domain,
+                path=path,
+                secure=secure,
+                expires=expires,
+                rest=rest,
+            )
+        )
+
+
+def build_authenticated_session(*, cookies_path: Optional[Path] = None) -> requests.Session:
+    session = requests.Session()
+    session.headers.update(DEFAULT_HEADERS)
+
+    if cookies_path and cookies_path.exists():
+        try:
+            from login import load_cookies
+
+            cookies = load_cookies(cookies_path)
+            _apply_selenium_cookies_to_session(session, cookies)
+        except Exception as exc:
+            print(f"Warning: failed to load cookies from {cookies_path}: {exc}")
+
+    return session
+
+
+def fetch_html(url: str, *, session: Optional[requests.Session] = None) -> str:
+    if session is None:
+        resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
+    else:
+        resp = session.get(url, timeout=15)
     resp.raise_for_status()
     resp.encoding = resp.apparent_encoding
     return resp.text
@@ -105,8 +160,10 @@ def parse_jobs(html: str) -> List[Dict[str, Any]]:
         description = _clean(desc_tag.get_text(" ", strip=True)) if desc_tag else ""
 
         time_box = card.select_one(".p-search-job-media__time")
-        time_status = _clean(time_box.select_one(".p-search-job-media__time-text").get_text()) if time_box else ""
-        time_remaining = _clean(time_box.select_one(".p-search-job-media__time-remaining").get_text()) if time_box else ""
+        time_text_tag = time_box.select_one(".p-search-job-media__time-text") if time_box else None
+        time_remaining_tag = time_box.select_one(".p-search-job-media__time-remaining") if time_box else None
+        time_status = _clean(time_text_tag.get_text()) if time_text_tag else ""
+        time_remaining = _clean(time_remaining_tag.get_text()) if time_remaining_tag else ""
 
         numbers = [n.get_text(strip=True) for n in card.select(".p-search-job-media__propose-number")]
         proposals = {
@@ -248,9 +305,9 @@ def append_job_to_sheet(job: Dict[str, Any], category: str) -> None:
         print(f"Failed to append to Google Sheet: {exc}")
 
 
-def get_job_data_dict(url: str):
+def get_job_data_dict(url: str, *, session: Optional[requests.Session] = None):
     # Step 1: make sure we have the latest HTML
-    html = fetch_html(url)
+    html = fetch_html(url, session=session)
     HTML_PATH.write_text(html, encoding="utf-8")
 
     # Step 2: parse job cards from the HTML we just saved
@@ -295,15 +352,21 @@ def show_noti(job_json, index):
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
     
-    # response = requests.post(WEBHOOK_URL, json=data)
+    response = requests.post(WEBHOOK_URL, json=data)
 
-    # if response.status_code == 204:
-    #     print("Message sent successfully")
-    # else:
-    #     print("Failed:", response.text)
+    if response.status_code == 204:
+        print("Message sent successfully")
+    else:
+        print("Failed:", response.text)
 
 if __name__ == "__main__":
     try:
+        session = build_authenticated_session(cookies_path=DEFAULT_COOKIES_PATH if DEFAULT_COOKIES_PATH.exists() else None)
+        if DEFAULT_COOKIES_PATH.exists():
+            print(f"Using Lancers cookies: {DEFAULT_COOKIES_PATH}")
+        else:
+            print(f"No cookies found at {DEFAULT_COOKIES_PATH}; fetching as guest. Run: python login.py")
+
         categories = ['system', 'web', 'design'] #system, web, design
         count = [0, 0, 0]
         pre_systems = [[],[],[]]
@@ -337,18 +400,27 @@ if __name__ == "__main__":
                 # print("pre_systems", pre_systems)
                 # systems = pre_systems[i%3]
                 # pre_systems[i%3] = []
-                job_list = get_job_data_dict(url=f"https://www.lancers.jp/work/search/{categories[i%3]}?open=1&ref=header_menu")
+                job_list = get_job_data_dict(
+                    url=f"https://www.lancers.jp/work/search/{categories[i%3]}?open=1&ref=header_menu",
+                    session=session,
+                )
                 
                 for job in job_list:
-                    if job:
-                        pre_systems[i%3].append(job['id'])
-                        if job['id'] not in pre_systems[i%3] and count[i%3] > 0:
-                        # if job['id'] not in pre_systems[i%3]:
-                            pre_systems[i%3].append(job['id'])
-                            show_noti(job, categories[i%3])
+                    if not job:
+                        continue
+
+                    job_id = job.get("id")
+                    if not job_id:
+                        continue
+
+                    is_new = job_id not in pre_systems[i % 3]
+                    if is_new:
+                        pre_systems[i % 3].append(job_id)
+                    if is_new and count[i % 3] > 0:
+                        show_noti(job, categories[i % 3])
                 
                 if len(pre_systems[i%3]) > 300:
-                    pre_systems = pre_systems[-300:]
+                    pre_systems[i%3] = pre_systems[i%3][-300:]
                 
                 end = time.time()
                 pre_duration = end - start

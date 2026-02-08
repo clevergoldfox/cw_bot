@@ -11,7 +11,7 @@ from openai import OpenAI
 # import os
 # os.environ["OPENAI_API_KEY"] = "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"
 
-client = OpenAI()
+# client = OpenAI()
 def get_bid(id):
     print(id)
     url = "https://crowdworks.jp/public/jobs/" + str(id)

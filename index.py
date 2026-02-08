@@ -189,18 +189,30 @@ def show_noti(job_json, index):
             )
         )
 
-        ts = main["ts"]
-        job_description = get_bid(job_json['id'])
+        # thread_ts = main["ts"]
+        # job_description = get_bid(job_json['id'])
 
-        slack_client.chat_postMessage(
-            channel=CHANNEL_ID,
-            thread_ts=ts,
-            text=f""" {job_json['title']}\n
+        # slack_client.chat_postMessage(
+        #     channel=CHANNEL_ID,
+        #     thread_ts=thread_ts,
+        #     text="📋 Job title (copyable snippet below)"
+        # )
 
-            ```text
-            {job_description}
-            ```"""
-        )
+        # slack_client.files_upload(
+        #     channels=CHANNEL_ID,
+        #     content=job_description,
+        #     title="Job Title",
+        #     filetype="text"
+        # )
+
+        # slack_client.chat_postMessage(
+        #     channel=CHANNEL_ID,
+        #     thread_ts=ts,
+        #     text=f"""```*
+        #     {job_json['title']}\n
+        #     {job_description}
+        #     *```"""
+        # )
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
     
