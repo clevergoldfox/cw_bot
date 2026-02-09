@@ -148,25 +148,25 @@ def show_noti(job_json, index):
     elif (index == 242):
         category = "App"
 
-    data = {
-        "embeds": [
-            {
-                "title": "Crowdworks New Task\n" + category,
-                "description": job_json['title']
-    + "  ("
-    + (
-        job_json['payment']['payment_type']
-        + "  "
-        + str(job_json['payment']['min_budget']) + "円"
-        if job_json['payment']['payment_type'] != 'undefined'
-        else "Undefined"
-      )
-    + ")\n"
-    + "https://crowdworks.jp/public/jobs/"
-    + str(job_json['id'])
-            }
-        ]
-    }
+    # data = {
+    #     "embeds": [
+    #         {
+    #             "title": "Crowdworks New Task\n" + category,
+    #             "description": job_json['title']
+    # + "  ("
+    # + (
+    #     job_json['payment']['payment_type']
+    #     + "  "
+    #     + str(job_json['payment']['min_budget']) + "円"
+    #     if job_json['payment']['payment_type'] != 'undefined'
+    #     else "Undefined"
+    #   )
+    # + ")\n"
+    # + "https://crowdworks.jp/public/jobs/"
+    # + str(job_json['id'])
+    #         }
+    #     ]
+    # }
 
     try:
         main = slack_client.chat_postMessage(

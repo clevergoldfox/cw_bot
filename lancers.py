@@ -338,7 +338,7 @@ def show_noti(job_json, index):
         "embeds": [
             {
                 "title": "Lancers New Task\n" + category,
-                "description": job_json['title'] + job_json['url'] + "\nPayment: " + job_json['budget'],
+                "description": job_json['title'] + "\n" + job_json['url'] + "\nPayment: " + job_json['budget'],
                 "color": 0x00ff00
             }
         ]
@@ -347,17 +347,17 @@ def show_noti(job_json, index):
     try:
         response = slack_client.chat_postMessage(
             channel=CHANNEL_ID,
-            text = "Lancers New Task\n" + category + "\n" + job_json['title'] + job_json['url'] + "\nPayment: " + job_json['budget']
+            text = "Lancers New Task\n" + category + "\n" + job_json['title'] + "\n" + job_json['url'] + "\nPayment: " + job_json['budget']
         )
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
     
-    response = requests.post(WEBHOOK_URL, json=data)
+    # response = requests.post(WEBHOOK_URL, json=data)
 
-    if response.status_code == 204:
-        print("Message sent successfully")
-    else:
-        print("Failed:", response.text)
+    # if response.status_code == 204:
+    #     print("Message sent successfully")
+    # else:
+    #     print("Failed:", response.text)
 
 if __name__ == "__main__":
     try:
