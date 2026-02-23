@@ -236,75 +236,6 @@ def _save_posted_ids(ids: set[str]) -> None:
     POSTED_IDS_PATH.write_text(json.dumps(sorted(ids), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _get_worksheet():
-    global _worksheet_cache
-    if _worksheet_cache:
-        return _worksheet_cache
-
-    try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-    except ImportError as exc:
-        print(f"Skipping Google Sheets logging (missing dependency): {exc}")
-        _worksheet_cache = None
-        return None
-
-    if not GOOGLE_SERVICE_ACCOUNT_FILE.exists():
-        print(f"Skipping Google Sheets logging (credentials not found at {GOOGLE_SERVICE_ACCOUNT_FILE}).")
-        _worksheet_cache = None
-        return None
-
-    try:
-        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-        creds = Credentials.from_service_account_file(str(GOOGLE_SERVICE_ACCOUNT_FILE), scopes=scopes)
-        client = gspread.authorize(creds)
-        _worksheet_cache = client.open_by_key(GOOGLE_SHEET_ID).worksheet(GOOGLE_SHEET_TAB)
-    except Exception as exc:
-        print(f"Skipping Google Sheets logging (init failed): {exc}")
-        print(traceback.format_exc())
-        _worksheet_cache = None
-    return _worksheet_cache
-
-
-def append_job_to_sheet(job: Dict[str, Any], category: str) -> None:
-    if not job.get("id"):
-        return
-
-    posted_ids = _load_posted_ids()
-    if job["id"] in posted_ids:
-        return
-
-    worksheet = _get_worksheet()
-    if not worksheet:
-        return
-
-    now = datetime.now()
-    description = (job.get("description") or "").strip()
-    url = job.get("url")
-    if url:
-        description = f"{description}\n{url}" if description else url
-
-    title = job.get("title") or ""
-    title = title[4:] if len(title) > 4 else ""
-
-    row = [
-        "=ROW()-1",
-        now.strftime("%Y/%m/%d"),
-        now.strftime("%H:%M:%S"),
-        category.title() if category else "",
-        title,
-        job.get("budget") or "",
-        description,
-    ]
-
-    try:
-        worksheet.append_row(row, value_input_option="USER_ENTERED")
-        posted_ids.add(job["id"])
-        _save_posted_ids(posted_ids)
-    except Exception as exc:
-        print(f"Failed to append to Google Sheet: {exc}")
-
-
 def get_job_data_dict(url: str, *, session: Optional[requests.Session] = None):
     # Step 1: make sure we have the latest HTML
     html = fetch_html(url, session=session)
@@ -332,8 +263,6 @@ def show_noti(job_json, index):
     else:
         category = index.title() if isinstance(index, str) else ""
 
-    append_job_to_sheet(job_json, category)
-
     data = {
         "embeds": [
             {
@@ -351,13 +280,6 @@ def show_noti(job_json, index):
         )
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
-    
-    # response = requests.post(WEBHOOK_URL, json=data)
-
-    # if response.status_code == 204:
-    #     print("Message sent successfully")
-    # else:
-    #     print("Failed:", response.text)
 
 if __name__ == "__main__":
     try:
