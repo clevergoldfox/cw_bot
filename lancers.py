@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-SLACK_BOT_TOKEN = "xoxp-9550131875088-9550131925200-10439629163507-5af893dec1ea669a630b237666ac5354"
+SLACK_BOT_TOKEN = "xoxb-9550131875088-10670319023685-BG4gEZit6Kwqy5ltu4XkaOV5"
 CHANNEL_ID = "C0ADGTM2F5X"
 
 slack_client = WebClient(token=SLACK_BOT_TOKEN)
@@ -211,6 +211,8 @@ def filter_new_high_budget(jobs: List[Dict[str, Any]], min_price: int) -> List[D
         is_new = any("NEW" in t.upper() for t in tags)
         if not is_new:
             continue
+        if job.get("job_type") == "コンペ" or job.get("job_type") == "求人":
+            continue
         if budget_min is None or budget_min <= min_price:
             continue
         client = (job.get("client") or "").strip()
@@ -246,7 +248,7 @@ def get_job_data_dict(url: str, *, session: Optional[requests.Session] = None):
     save_jobs_to_json(jobs, JSON_PATH)
 
     # Step 3: filter for today's (NEW) jobs with minimum budget over 50,000円
-    filtered_jobs = filter_new_high_budget(jobs, min_price=50_000)
+    filtered_jobs = filter_new_high_budget(jobs, min_price=20000)
     return filtered_jobs
         
 def show_noti(job_json, index):
@@ -289,9 +291,9 @@ if __name__ == "__main__":
         else:
             print(f"No cookies found at {DEFAULT_COOKIES_PATH}; fetching as guest. Run: python login.py")
 
-        categories = ['system', 'web', 'design'] #system, web, design
-        count = [0, 0, 0]
-        pre_systems = [[],[],[]]
+        categories = ['system', 'web'] #system, web, design
+        count = [0, 0]
+        pre_systems = [[],[]]
         new_systems = []
         i = 0
         duration = 0
@@ -300,30 +302,30 @@ if __name__ == "__main__":
             try:
                 duration += pre_duration
                 start = time.time()
-                # print(f"Count: {count[i%3]}")
-                if categories[i%3] == 'system':
+                # print(f"Count: {count[i%2]}")
+                if categories[i%2] == 'system':
                     print()
                     print()
                     print(f"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~    Count:{ (math.floor(i / 3)) + 1 }  Duration: {duration:.2f} S    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
                     print()
                     print(f"================================= System   Duration: {pre_duration:.2f} S  ================================")
                     print()
-                elif categories[i%3] == 'web':
+                elif categories[i%2] == 'web':
                     print()
                     print(f"================================= Web   Duration: {pre_duration:.2f} S  ================================")
                     print()
-                elif categories[i%3] == 'design':
-                    print()
-                    print(f"================================= Design   Duration: {pre_duration:.2f} S  ================================")
-                    print()
+                # elif categories[i%2] == 'design':
+                #     print()
+                #     print(f"================================= Design   Duration: {pre_duration:.2f} S  ================================")
+                #     print()
                     
-                if i % 3 == 0:
+                if i%2 == 0:
                     duration = 0
                 # print("pre_systems", pre_systems)
-                # systems = pre_systems[i%3]
-                # pre_systems[i%3] = []
+                # systems = pre_systems[i%2]
+                # pre_systems[i%2] = []
                 job_list = get_job_data_dict(
-                    url=f"https://www.lancers.jp/work/search/{categories[i%3]}?open=1&ref=header_menu",
+                    url=f"https://www.lancers.jp/work/search/{categories[i%2]}?open=1&ref=header_menu",
                     session=session,
                 )
                 
@@ -335,18 +337,18 @@ if __name__ == "__main__":
                     if not job_id:
                         continue
 
-                    is_new = job_id not in pre_systems[i % 3]
+                    is_new = job_id not in pre_systems[i%2]
                     if is_new:
-                        pre_systems[i % 3].append(job_id)
-                    if is_new and count[i % 3] > 0:
-                        show_noti(job, categories[i % 3])
+                        pre_systems[i%2].append(job_id)
+                    if is_new and count[i%2] > 0:
+                        show_noti(job, categories[i%2])
                 
-                if len(pre_systems[i%3]) > 300:
-                    pre_systems[i%3] = pre_systems[i%3][-300:]
+                if len(pre_systems[i%2]) > 300:
+                    pre_systems[i%2] = pre_systems[i%2][-300:]
                 
                 end = time.time()
                 pre_duration = end - start
-                count[i%3] += 1
+                count[i%2] += 1
                 i += 1
             except Exception as e:
                 time.sleep(1)
