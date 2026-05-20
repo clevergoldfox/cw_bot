@@ -1,5 +1,5 @@
 /__pycache__
-lancers_jobs.json
 lancers_work_search.html
-lancers_cookies.json
 .env
+
+*.json

@@ -11,10 +11,12 @@ from urllib.parse import urljoin, urlparse
 from datetime import datetime, timedelta
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+
+import sheets
 
 SLACK_BOT_TOKEN = "xoxb-9550131875088-10670319023685-BG4gEZit6Kwqy5ltu4XkaOV5"
 CHANNEL_ID = "C0ADGTM2F5X"
@@ -40,6 +42,9 @@ _worksheet_cache: Optional[Any] = None
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept-Language": "ja,en;q=0.9",
+    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
 }
 
 DEFAULT_COOKIES_PATH = Path(os.getenv("LANCERS_COOKIES", "lancers_cookies.json"))
@@ -94,10 +99,16 @@ def build_authenticated_session(*, cookies_path: Optional[Path] = None) -> reque
 
 
 def fetch_html(url: str, *, session: Optional[requests.Session] = None) -> str:
+    # Append a cache-busting timestamp so CDN/proxy layers cannot return a
+    # stale copy of the listing — that's what makes brand-new posts appear
+    # minutes late. The query param is ignored by the application but
+    # forces the edge cache to treat each request as unique.
+    sep = "&" if "?" in url else "?"
+    full_url = f"{url}{sep}_={int(time.time() * 1000)}"
     if session is None:
-        resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
+        resp = requests.get(full_url, headers=DEFAULT_HEADERS, timeout=15)
     else:
-        resp = session.get(url, timeout=15)
+        resp = session.get(full_url, headers=DEFAULT_HEADERS, timeout=15)
     resp.raise_for_status()
     resp.encoding = resp.apparent_encoding
     return resp.text
@@ -141,8 +152,22 @@ def parse_jobs(html: str) -> List[Dict[str, Any]]:
     for card in soup.select("div.p-search-job-media.c-media.c-media--item"):
         onclick = card.get("onclick", "")
 
+        # Project cards have goToLjpWorkDetail(N); 求人 / onsite job cards have
+        # goToLjpJobDetail(N) with a tiny ID in a different namespace. Mixing
+        # them in causes ID collisions in pre_systems and wrong-type
+        # notifications, so skip anything that is not a project card.
+        if "goToLjpWorkDetail" not in onclick:
+            continue
+
         title_tag = card.select_one("a.p-search-job-media__title")
-        title = _clean(title_tag.get_text()) if title_tag else ""
+        # The tags <ul> (NEW, 急募, etc.) is nested inside the title <a>, so
+        # get_text() would prepend "NEW" to every title. Read only the direct
+        # text nodes of the <a> to get the real title on its own.
+        title = ""
+        if title_tag:
+            title = _clean("".join(
+                c for c in title_tag.contents if isinstance(c, NavigableString)
+            ))
         url = urljoin(BASE_URL, title_tag["href"]) if title_tag and title_tag.get("href") else None
         job_id = _parse_job_id(onclick, url)
 
@@ -225,17 +250,20 @@ def filter_new_high_budget(jobs: List[Dict[str, Any]], min_price: int) -> List[D
     return filtered
 
 
-def _load_posted_ids() -> set[str]:
+def _load_posted_ids() -> Dict[str, List[str]]:
     if not POSTED_IDS_PATH.exists():
-        return set()
+        return {}
     try:
-        return set(json.loads(POSTED_IDS_PATH.read_text(encoding="utf-8")))
+        data = json.loads(POSTED_IDS_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return {k: list(v) for k, v in data.items() if isinstance(v, list)}
+        return {}
     except Exception:
-        return set()
+        return {}
 
 
-def _save_posted_ids(ids: set[str]) -> None:
-    POSTED_IDS_PATH.write_text(json.dumps(sorted(ids), ensure_ascii=False, indent=2), encoding="utf-8")
+def _save_posted_ids(by_category: Dict[str, List[str]]) -> None:
+    POSTED_IDS_PATH.write_text(json.dumps(by_category, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def get_job_data_dict(url: str, *, session: Optional[requests.Session] = None):
@@ -247,10 +275,24 @@ def get_job_data_dict(url: str, *, session: Optional[requests.Session] = None):
     jobs = parse_jobs(html)
     save_jobs_to_json(jobs, JSON_PATH)
 
-    # Step 3: filter for today's (NEW) jobs with minimum budget over 50,000円
+    # Step 3: filter for today's (NEW) jobs with minimum budget over 20,000円
     filtered_jobs = filter_new_high_budget(jobs, min_price=20000)
-    return filtered_jobs
+    return jobs, filtered_jobs
         
+def _format_estimate(job_json) -> str:
+    """Build an estimate string like 'fixed(100,000円〜200,000円)' for the sheet."""
+    budget_raw = job_json.get("budget") or ""
+    lo = job_json.get("budget_min")
+    hi = job_json.get("budget_max")
+    ptype = "hourly" if ("時間" in budget_raw or "時給" in budget_raw) else "fixed"
+    if isinstance(lo, int) and isinstance(hi, int) and lo != hi:
+        return f"{ptype}({lo:,}円〜{hi:,}円)"
+    amount = lo if isinstance(lo, int) else (hi if isinstance(hi, int) else None)
+    if amount is not None:
+        return f"{ptype}({amount:,}円)"
+    return budget_raw or "undefined"
+
+
 def show_noti(job_json, index):
     print(f"Title: {job_json['title']}")
     print(f"https://www.lancers.jp/work/detail/{job_json['id']}")
@@ -265,23 +307,27 @@ def show_noti(job_json, index):
     else:
         category = index.title() if isinstance(index, str) else ""
 
-    data = {
-        "embeds": [
-            {
-                "title": "Lancers New Task\n" + category,
-                "description": job_json['title'] + "\n" + job_json['url'] + "\nPayment: " + job_json['budget'],
-                "color": 0x00ff00
-            }
-        ]
-    }
+    detail_url = job_json.get("url") or f"https://www.lancers.jp/work/detail/{job_json['id']}"
 
     try:
         response = slack_client.chat_postMessage(
             channel=CHANNEL_ID,
-            text = "Lancers New Task\n" + category + "\n" + job_json['title'] + "\n" + job_json['url'] + "\nPayment: " + job_json['budget']
+            text = "Lancers New Task\n" + category + "\n" + job_json['title'] + "\n" + detail_url + "\nPayment: " + job_json['budget']
         )
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
+
+    try:
+        sheets.append_job_row(
+            gid=sheets.LANCERS_GID,
+            category=category,
+            title=job_json.get("title") or "",
+            detail_url=detail_url,
+            estimate=_format_estimate(job_json),
+            content=job_json.get("description") or "",
+        )
+    except Exception as exc:
+        print(f"Sheet logging error: {exc}")
 
 if __name__ == "__main__":
     try:
@@ -292,9 +338,9 @@ if __name__ == "__main__":
             print(f"No cookies found at {DEFAULT_COOKIES_PATH}; fetching as guest. Run: python login.py")
 
         categories = ['system', 'web'] #system, web, design
-        count = [0, 0]
-        pre_systems = [[],[]]
-        new_systems = []
+        count = [0] * len(categories)
+        persisted = _load_posted_ids()
+        pre_systems = [list(persisted.get(c, [])) for c in categories]
         i = 0
         duration = 0
         pre_duration = 0
@@ -302,59 +348,80 @@ if __name__ == "__main__":
             try:
                 duration += pre_duration
                 start = time.time()
-                # print(f"Count: {count[i%2]}")
-                if categories[i%2] == 'system':
+                idx = i % len(categories)
+                if categories[idx] == 'system':
                     print()
                     print()
-                    print(f"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~    Count:{ (math.floor(i / 3)) + 1 }  Duration: {duration:.2f} S    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                    print(f"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~    Count:{ (math.floor(i / len(categories))) + 1 }  Duration: {duration:.2f} S    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
                     print()
                     print(f"================================= System   Duration: {pre_duration:.2f} S  ================================")
                     print()
-                elif categories[i%2] == 'web':
+                elif categories[idx] == 'web':
                     print()
                     print(f"================================= Web   Duration: {pre_duration:.2f} S  ================================")
                     print()
-                # elif categories[i%2] == 'design':
-                #     print()
-                #     print(f"================================= Design   Duration: {pre_duration:.2f} S  ================================")
-                #     print()
-                    
-                if i%2 == 0:
+
+                if idx == 0:
                     duration = 0
-                # print("pre_systems", pre_systems)
-                # systems = pre_systems[i%2]
-                # pre_systems[i%2] = []
-                job_list = get_job_data_dict(
-                    url=f"https://www.lancers.jp/work/search/{categories[i%2]}?open=1&ref=header_menu",
+
+                # sort=started → 新着順 (newest first). The default sort=client
+                # reorders by recommendation, which both hides fresh posts and
+                # surfaces older ones as if they were new.
+                all_jobs, job_list = get_job_data_dict(
+                    url=f"https://www.lancers.jp/work/search/{categories[idx]}?open=1&sort=started&ref=header_menu",
                     session=session,
                 )
-                
-                for job in job_list:
+
+                # Snapshot what we'd seen before this scan; notifications use this
+                # so a job that changes filter-membership later (e.g. budget edited
+                # upward hours after posting) is not mistaken for a brand-new post.
+                seen_before = set(pre_systems[idx])
+
+                # Track every NEW-tagged job we observe, not just ones that pass
+                # the filter. This is the key fix: filter membership can flip
+                # later, but the job itself isn't actually new at that point.
+                for job in (all_jobs or []):
                     if not job:
                         continue
-
                     job_id = job.get("id")
                     if not job_id:
                         continue
+                    tags = job.get("tags") or []
+                    if not any("NEW" in t.upper() for t in tags):
+                        continue
+                    if job_id not in seen_before:
+                        pre_systems[idx].append(job_id)
 
-                    is_new = job_id not in pre_systems[i%2]
-                    if is_new:
-                        pre_systems[i%2].append(job_id)
-                    if is_new and count[i%2] > 0:
-                        show_noti(job, categories[i%2])
-                
-                if len(pre_systems[i%2]) > 300:
-                    pre_systems[i%2] = pre_systems[i%2][-300:]
-                
+                # Notify on filtered jobs we hadn't seen prior to this scan,
+                # and only after the first warm-up cycle for this category.
+                if count[idx] > 0:
+                    for job in (job_list or []):
+                        if not job:
+                            continue
+                        job_id = job.get("id")
+                        if not job_id:
+                            continue
+                        if job_id not in seen_before:
+                            show_noti(job, categories[idx])
+
+                if len(pre_systems[idx]) > 1000:
+                    pre_systems[idx] = pre_systems[idx][-1000:]
+
+                try:
+                    _save_posted_ids({categories[k]: pre_systems[k] for k in range(len(categories))})
+                except Exception as save_exc:
+                    print(f"Warning: failed to persist posted ids: {save_exc}")
+
                 end = time.time()
                 pre_duration = end - start
-                count[i%2] += 1
+                count[idx] += 1
                 i += 1
             except Exception as e:
-                time.sleep(1)
-                count = [0,0,0]
-                i = 0
                 print(f"Error: {e}")
+                traceback.print_exc()
+                time.sleep(5)
+                count = [0] * len(categories)
+                i = 0
                 continue
                     
     except Exception as e:

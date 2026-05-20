@@ -10,6 +10,8 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from get_bid import get_bid
 
+import sheets
+
 SLACK_BOT_TOKEN = "xoxb-9550131875088-10437907872661-5Q6WrFHd5lHkH7VZiMQUiDlA"
 CHANNEL_ID = "C0ACHPMNU4F"
 
@@ -134,11 +136,29 @@ def job_filter(job_json):
         print(f"Error: {e}")
         print(f"Job JSON: {job_json}")
         
+def format_estimate(payment):
+    """Build an estimate string like 'fixed(50,000円)' / 'hourly(3000円)' for the sheet."""
+    ptype = payment.get("payment_type")
+    if ptype not in ("fixed", "hourly"):
+        return "undefined"
+    lo = payment.get("min_budget")
+    hi = payment.get("max_budget")
+    lo = lo if isinstance(lo, (int, float)) and lo else None
+    hi = hi if isinstance(hi, (int, float)) and hi else None
+    if lo and hi and lo != hi:
+        return f"{ptype}({lo:,}円〜{hi:,}円)"
+    amount = lo or hi
+    if amount:
+        return f"{ptype}({amount:,}円)"
+    return ptype
+
+
 def show_noti(job_json, index):
     print(f"Title: {job_json['title']}")
     print(f"https://crowdworks.jp/public/jobs/{job_json['id']}")
     print(f"Payment: {job_json['payment']}")
     print(f"Last Released At: {job_json['last_released_at']}")
+    category = ""
     if (index == 226):
         category = "System"
     elif (index == 230):
@@ -215,7 +235,19 @@ def show_noti(job_json, index):
         # )
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
-    
+
+    try:
+        sheets.append_job_row(
+            gid=sheets.CROWDWORKS_GID,
+            category=category,
+            title=job_json.get("title") or "",
+            detail_url=f"https://crowdworks.jp/public/jobs/{job_json['id']}",
+            estimate=format_estimate(job_json.get("payment") or {}),
+            content=job_json.get("description") or "",
+        )
+    except Exception as exc:
+        print(f"Sheet logging error: {exc}")
+
     # response = requests.post(WEBHOOK_URL, json=data)
 
     # if response.status_code == 204:
@@ -272,6 +304,7 @@ if __name__ == "__main__":
                     job_json = {
                         'id': job['job_offer']['id'],
                         'title': job['job_offer']['title'],
+                        'description': job['job_offer'].get('description_digest', ''),
                         'status': job['job_offer']['status'],
                         'expired_on': job['job_offer']['expired_on'],
                         'last_released_at': job['job_offer']['last_released_at'],
