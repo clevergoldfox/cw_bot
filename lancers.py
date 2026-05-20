@@ -279,6 +279,29 @@ def get_job_data_dict(url: str, *, session: Optional[requests.Session] = None):
     filtered_jobs = filter_new_high_budget(jobs, min_price=20000)
     return jobs, filtered_jobs
         
+def fetch_full_description(url: Optional[str], *, session: Optional[requests.Session] = None) -> str:
+    """Fetch the complete job description from a Lancers work detail page.
+
+    The search listing only carries a truncated preview; the full text lives in
+    the 依頼概要 row (dd.c-definition-list__description) of the detail page.
+    """
+    if not url:
+        return ""
+    try:
+        html = fetch_html(url, session=session)
+        soup = BeautifulSoup(html, "html.parser")
+        best = ""
+        for dd in soup.select("dd.c-definition-list__description"):
+            text = dd.get_text("\n", strip=True)
+            if len(text) > len(best):
+                best = text
+        # collapse runs of blank lines that get_text can introduce
+        return re.sub(r"\n{3,}", "\n\n", best).strip()
+    except Exception as exc:
+        print(f"Failed to fetch full description from {url}: {exc}")
+        return ""
+
+
 def _format_estimate(job_json) -> str:
     """Build an estimate string like 'fixed(100,000円〜200,000円)' for the sheet."""
     budget_raw = job_json.get("budget") or ""
@@ -293,7 +316,7 @@ def _format_estimate(job_json) -> str:
     return budget_raw or "undefined"
 
 
-def show_noti(job_json, index):
+def show_noti(job_json, index, session=None):
     print(f"Title: {job_json['title']}")
     print(f"https://www.lancers.jp/work/detail/{job_json['id']}")
     print(f"Payment: {job_json['budget']}")
@@ -317,6 +340,9 @@ def show_noti(job_json, index):
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
 
+    # The listing only has a truncated preview; fetch the full detail text.
+    content = fetch_full_description(detail_url, session=session) or (job_json.get("description") or "")
+
     try:
         sheets.append_job_row(
             gid=sheets.LANCERS_GID,
@@ -324,7 +350,7 @@ def show_noti(job_json, index):
             title=job_json.get("title") or "",
             detail_url=detail_url,
             estimate=_format_estimate(job_json),
-            content=job_json.get("description") or "",
+            content=content,
         )
     except Exception as exc:
         print(f"Sheet logging error: {exc}")
@@ -402,7 +428,7 @@ if __name__ == "__main__":
                         if not job_id:
                             continue
                         if job_id not in seen_before:
-                            show_noti(job, categories[idx])
+                            show_noti(job, categories[idx], session=session)
 
                 if len(pre_systems[idx]) > 1000:
                     pre_systems[idx] = pre_systems[idx][-1000:]

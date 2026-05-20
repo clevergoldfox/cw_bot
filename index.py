@@ -236,6 +236,16 @@ def show_noti(job_json, index):
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
 
+    # The search API only returns a truncated digest; scrape the detail page
+    # for the full description, falling back to the digest if that fails.
+    content = job_json.get("description") or ""
+    try:
+        full = get_bid(job_json["id"])
+        if full:
+            content = full
+    except Exception as exc:
+        print(f"Failed to fetch full description: {exc}")
+
     try:
         sheets.append_job_row(
             gid=sheets.CROWDWORKS_GID,
@@ -243,7 +253,7 @@ def show_noti(job_json, index):
             title=job_json.get("title") or "",
             detail_url=f"https://crowdworks.jp/public/jobs/{job_json['id']}",
             estimate=format_estimate(job_json.get("payment") or {}),
-            content=job_json.get("description") or "",
+            content=content,
         )
     except Exception as exc:
         print(f"Sheet logging error: {exc}")
