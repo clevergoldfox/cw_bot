@@ -6,7 +6,10 @@ broken/expired service account never stops the Slack notifications.
 """
 
 import datetime
+import re
 from pathlib import Path
+
+ROW_HEIGHT_PX = 50
 
 SPREADSHEET_ID = "1-PL8BvUVVczQ86XJY_e3wm8BMHs3fU4AzBeoI6Yryvk"
 SERVICE_ACCOUNT_FILE = Path("service_account.json")
@@ -74,10 +77,38 @@ def _hyperlink(url: str, text: str) -> str:
     return f'=HYPERLINK("{url}","{text}")'
 
 
+def _set_row_height(worksheet, append_result) -> None:
+    """Set the just-appended row's height to ROW_HEIGHT_PX. Best-effort."""
+    try:
+        updated_range = append_result["updates"]["updatedRange"]  # e.g. "Lancers!A7:E7"
+        start_cell = updated_range.split("!")[-1].split(":")[0]    # "A7"
+        match = re.search(r"(\d+)", start_cell)
+        if not match:
+            return
+        row_index = int(match.group(1))  # 1-based
+        worksheet.spreadsheet.batch_update({
+            "requests": [{
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet.id,
+                        "dimension": "ROWS",
+                        "startIndex": row_index - 1,
+                        "endIndex": row_index,
+                    },
+                    "properties": {"pixelSize": ROW_HEIGHT_PX},
+                    "fields": "pixelSize",
+                }
+            }]
+        })
+    except Exception as exc:
+        print(f"Google Sheets: could not set row height: {exc}")
+
+
 def append_job_row(gid: int, category: str, title: str, detail_url: str,
                     estimate: str, content: str) -> bool:
     """Append one job: [datetime, category, title-link, estimate, content].
 
+    Only ever appends a new row — existing rows are never modified or deleted.
     Returns True if the row was written, False if logging is unavailable.
     Never raises — Sheets logging must not break the notification path.
     """
@@ -95,7 +126,8 @@ def append_job_row(gid: int, category: str, title: str, detail_url: str,
         content or "",
     ]
     try:
-        worksheet.append_row(row, value_input_option="USER_ENTERED")
+        result = worksheet.append_row(row, value_input_option="USER_ENTERED")
+        _set_row_height(worksheet, result)
         return True
     except Exception as exc:
         print(f"Google Sheets append failed (gid={gid}): {exc}")
