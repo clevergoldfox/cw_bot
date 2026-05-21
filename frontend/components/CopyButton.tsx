@@ -3,7 +3,13 @@
 import { useState } from "react";
 
 /** Green copy button — copies the given text to the clipboard on click. */
-export default function CopyButton({ text }: { text: string }) {
+export default function CopyButton({
+  text,
+  onCopy,
+}: {
+  text: string;
+  onCopy?: () => void;
+}) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -21,6 +27,7 @@ export default function CopyButton({ text }: { text: string }) {
       document.body.removeChild(ta);
     }
     setCopied(true);
+    onCopy?.();
     window.setTimeout(() => setCopied(false), 2000);
   }
 

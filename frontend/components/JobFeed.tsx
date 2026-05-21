@@ -14,7 +14,11 @@ export default function JobFeed({
   loading,
   error,
   lastUpdated,
-  newIds,
+  readIds,
+  justArrived,
+  onMarkRead,
+  notifPermission,
+  onEnableNotifications,
   onRefresh,
 }: {
   channel: Channel;
@@ -22,7 +26,11 @@ export default function JobFeed({
   loading: boolean;
   error?: string;
   lastUpdated: Date | null;
-  newIds: Set<string>;
+  readIds: Set<string>;
+  justArrived: Set<string>;
+  onMarkRead: (id: string) => void;
+  notifPermission: NotificationPermission;
+  onEnableNotifications: () => void;
   onRefresh: () => void;
 }) {
   return (
@@ -33,6 +41,11 @@ export default function JobFeed({
           <span className="feed__channel">{CHANNEL_LABEL[channel]}</span>
         </div>
         <div className="feed__meta">
+          {notifPermission !== "granted" && (
+            <button className="feed__notify" onClick={onEnableNotifications}>
+              🔔 Enable notifications
+            </button>
+          )}
           <span>{jobs.length} assignments</span>
           {lastUpdated && (
             <span className="feed__updated">
@@ -64,7 +77,13 @@ export default function JobFeed({
         )}
 
         {jobs.map((job) => (
-          <JobCard key={job.id} job={job} isNew={newIds.has(job.id)} />
+          <JobCard
+            key={job.id}
+            job={job}
+            unread={!readIds.has(job.id)}
+            justArrived={justArrived.has(job.id)}
+            onMarkRead={onMarkRead}
+          />
         ))}
       </div>
     </main>

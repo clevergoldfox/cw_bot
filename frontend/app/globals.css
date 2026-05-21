@@ -126,6 +126,18 @@ body {
   text-align: center;
 }
 
+/* red "+N new assignments" badge */
+.channel__new {
+  font-size: 12px;
+  font-weight: 800;
+  background: #e01e5a;
+  color: #ffffff;
+  border-radius: 10px;
+  padding: 1px 7px;
+  min-width: 22px;
+  text-align: center;
+}
+
 /* ---------- feed ---------- */
 .feed {
   flex: 1;
@@ -186,6 +198,21 @@ body {
 
 .feed__refresh:hover {
   background: #f4f4f4;
+}
+
+.feed__notify {
+  border: 1px solid #2eb67d;
+  background: #eafaf2;
+  color: #1a7f53;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.feed__notify:hover {
+  background: #d8f3e5;
 }
 
 .feed__body {

@@ -11,10 +11,12 @@ export default function Sidebar({
   channel,
   onSelect,
   counts,
+  unread,
 }: {
   channel: Channel;
   onSelect: (c: Channel) => void;
   counts: Record<Channel, number>;
+  unread: Record<Channel, number>;
 }) {
   return (
     <aside className="sidebar">
@@ -37,6 +39,9 @@ export default function Sidebar({
             <span className="channel__hash">#</span>
             <span className="channel__name">{c.label}</span>
             <span className="channel__count">{counts[c.key]}</span>
+            {unread[c.key] > 0 && (
+              <span className="channel__new">+{unread[c.key]}</span>
+            )}
           </button>
         ))}
       </nav>

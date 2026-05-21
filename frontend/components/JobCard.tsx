@@ -14,15 +14,31 @@ const AVATAR: Record<Job["channel"], string> = {
   lancers: "LA",
 };
 
-export default function JobCard({ job, isNew }: { job: Job; isNew: boolean }) {
+export default function JobCard({
+  job,
+  unread,
+  justArrived,
+  onMarkRead,
+}: {
+  job: Job;
+  unread: boolean;
+  justArrived: boolean;
+  onMarkRead: (id: string) => void;
+}) {
   const [open, setOpen] = useState(false);
 
   // Exactly the text the Slack code block used.
   const copyText =
     `Title:${job.title}\n` + "-".repeat(19) + `\n Content:${job.content}`;
 
+  // Interacting with a card (toggle or copy) marks it read.
+  const handleToggle = () => {
+    setOpen((v) => !v);
+    onMarkRead(job.id);
+  };
+
   return (
-    <article className={`card ${isNew ? "card--new" : ""}`}>
+    <article className={`card ${justArrived ? "card--new" : ""}`}>
       <div className={`card__avatar card__avatar--${job.channel}`}>
         {AVATAR[job.channel]}
       </div>
@@ -32,7 +48,7 @@ export default function JobCard({ job, isNew }: { job: Job; isNew: boolean }) {
           <span className="card__author">{AUTHOR[job.channel]}</span>
           {job.category && <span className="badge">{job.category}</span>}
           {job.estimate && <span className="card__estimate">{job.estimate}</span>}
-          {isNew && <span className="badge badge--new">NEW</span>}
+          {unread && <span className="badge badge--new">NEW</span>}
           {job.datetime && <span className="card__time">{job.datetime}</span>}
         </div>
 
@@ -51,11 +67,11 @@ export default function JobCard({ job, isNew }: { job: Job; isNew: boolean }) {
           )}
 
           <div className="card__actions">
-            <CopyButton text={copyText} />
+            <CopyButton text={copyText} onCopy={() => onMarkRead(job.id)} />
             <button
               type="button"
               className="toggle-btn"
-              onClick={() => setOpen((v) => !v)}
+              onClick={handleToggle}
               aria-expanded={open}
               aria-label={open ? "Collapse details" : "Expand details"}
             >
