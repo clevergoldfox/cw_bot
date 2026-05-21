@@ -47,8 +47,10 @@ already shared with it.
 
 1. Push this repository to GitHub/GitLab.
 2. In Vercel, **New Project** → import the repo.
-3. Set **Root Directory** to `frontend`.
-4. Framework preset is detected as **Next.js** — leave the build settings default.
+3. Set **Root Directory** to `frontend` (skip if the repo root *is* this folder).
+4. Set **Framework Preset** to **Next.js**. This is required — if it is left on
+   "Other", the build fails with `No Output Directory named "public" found`.
+   `vercel.json` in this folder also pins `"framework": "nextjs"` as a safeguard.
 5. Under **Environment Variables**, add the three variables above
    (`GOOGLE_SHEET_ID`, `GOOGLE_CLIENT_EMAIL`, `GOOGLE_PRIVATE_KEY`).
    - For `GOOGLE_PRIVATE_KEY`, paste the key value including the

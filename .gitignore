@@ -8,3 +8,4 @@ lancers_work_search.html
 !frontend/package.json
 !frontend/package-lock.json
 !frontend/tsconfig.json
+!frontend/vercel.json
