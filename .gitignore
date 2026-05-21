@@ -3,3 +3,8 @@ lancers_work_search.html
 .env
 
 *.json
+
+# Next.js frontend config must stay tracked despite the *.json rule above.
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/tsconfig.json
