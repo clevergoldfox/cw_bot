@@ -236,7 +236,6 @@ def show_noti(job_json, index):
                 )
                 + ")\n"
                 + detail_url
-                + "\n" + copy_block
             )
         )
     except SlackApiError as e:

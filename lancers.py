@@ -357,7 +357,7 @@ def show_noti(job_json, index, session=None):
     try:
         response = slack_client.chat_postMessage(
             channel=CHANNEL_ID,
-            text = "Lancers New Task\n" + category + "\n" + job_json['title'] + "\n" + detail_url + "\nPayment: " + job_json['budget'] + "\n" + copy_block
+            text = "Lancers New Task\n" + category + "\n" + job_json['title'] + "\n" + detail_url + "\nPayment: " + job_json['budget']
         )
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
