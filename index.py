@@ -153,6 +153,20 @@ def format_estimate(payment):
     return ptype
 
 
+def build_copy_block(title, content):
+    """Build a Slack code block; Slack's built-in copy button on code blocks
+    copies this exact text (Title / separator / Content) to the clipboard."""
+    title = (title or "").replace("```", "'''")
+    content = (content or "").replace("```", "'''")
+    return (
+        "```\n"
+        f"Title:{title}\n"
+        + "-" * 19 + "\n"
+        f" Content:{content}\n"
+        "```"
+    )
+
+
 def show_noti(job_json, index):
     print(f"Title: {job_json['title']}")
     print(f"https://crowdworks.jp/public/jobs/{job_json['id']}")
@@ -188,6 +202,23 @@ def show_noti(job_json, index):
     #     ]
     # }
 
+    # Fetch the full description first so it can feed both the Slack message
+    # and the sheet. The search API only returns a truncated digest, so scrape
+    # the detail page; fall back to the digest if that request fails.
+    content = job_json.get("description") or ""
+    try:
+        full = get_bid(job_json["id"])
+        if full:
+            content = full
+    except Exception as exc:
+        print(f"Failed to fetch full description: {exc}")
+
+    detail_url = f"https://crowdworks.jp/public/jobs/{job_json['id']}"
+
+    # Code block at the end of the message. Slack shows a one-click copy
+    # button on code blocks, so pressing it copies exactly this text.
+    copy_block = build_copy_block(job_json["title"], content)
+
     try:
         main = slack_client.chat_postMessage(
             channel=CHANNEL_ID,
@@ -204,54 +235,19 @@ def show_noti(job_json, index):
                     else "Undefined"
                 )
                 + ")\n"
-                + "https://crowdworks.jp/public/jobs/"
-                + str(job_json['id'])
+                + detail_url
+                + "\n" + copy_block
             )
         )
-
-        # thread_ts = main["ts"]
-        # job_description = get_bid(job_json['id'])
-
-        # slack_client.chat_postMessage(
-        #     channel=CHANNEL_ID,
-        #     thread_ts=thread_ts,
-        #     text="📋 Job title (copyable snippet below)"
-        # )
-
-        # slack_client.files_upload(
-        #     channels=CHANNEL_ID,
-        #     content=job_description,
-        #     title="Job Title",
-        #     filetype="text"
-        # )
-
-        # slack_client.chat_postMessage(
-        #     channel=CHANNEL_ID,
-        #     thread_ts=ts,
-        #     text=f"""```*
-        #     {job_json['title']}\n
-        #     {job_description}
-        #     *```"""
-        # )
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
-
-    # The search API only returns a truncated digest; scrape the detail page
-    # for the full description, falling back to the digest if that fails.
-    content = job_json.get("description") or ""
-    try:
-        full = get_bid(job_json["id"])
-        if full:
-            content = full
-    except Exception as exc:
-        print(f"Failed to fetch full description: {exc}")
 
     try:
         sheets.append_job_row(
             gid=sheets.CROWDWORKS_GID,
             category=category,
             title=job_json.get("title") or "",
-            detail_url=f"https://crowdworks.jp/public/jobs/{job_json['id']}",
+            detail_url=detail_url,
             estimate=format_estimate(job_json.get("payment") or {}),
             content=content,
         )

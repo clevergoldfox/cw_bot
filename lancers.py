@@ -316,6 +316,20 @@ def _format_estimate(job_json) -> str:
     return budget_raw or "undefined"
 
 
+def build_copy_block(title, content):
+    """Build a Slack code block; Slack's built-in copy button on code blocks
+    copies this exact text (Title / separator / Content) to the clipboard."""
+    title = (title or "").replace("```", "'''")
+    content = (content or "").replace("```", "'''")
+    return (
+        "```\n"
+        f"Title:{title}\n"
+        + "-" * 19 + "\n"
+        f" Content:{content}\n"
+        "```"
+    )
+
+
 def show_noti(job_json, index, session=None):
     print(f"Title: {job_json['title']}")
     print(f"https://www.lancers.jp/work/detail/{job_json['id']}")
@@ -332,16 +346,21 @@ def show_noti(job_json, index, session=None):
 
     detail_url = job_json.get("url") or f"https://www.lancers.jp/work/detail/{job_json['id']}"
 
+    # The listing only has a truncated preview; fetch the full detail text
+    # first so it can feed both the Slack copy-block and the sheet.
+    content = fetch_full_description(detail_url, session=session) or (job_json.get("description") or "")
+
+    # Code block at the end of the message. Slack shows a one-click copy
+    # button on code blocks, so pressing it copies exactly this text.
+    copy_block = build_copy_block(job_json["title"], content)
+
     try:
         response = slack_client.chat_postMessage(
             channel=CHANNEL_ID,
-            text = "Lancers New Task\n" + category + "\n" + job_json['title'] + "\n" + detail_url + "\nPayment: " + job_json['budget']
+            text = "Lancers New Task\n" + category + "\n" + job_json['title'] + "\n" + detail_url + "\nPayment: " + job_json['budget'] + "\n" + copy_block
         )
     except SlackApiError as e:
         print(f"Error: {e.response['error']}")
-
-    # The listing only has a truncated preview; fetch the full detail text.
-    content = fetch_full_description(detail_url, session=session) or (job_json.get("description") or "")
 
     try:
         sheets.append_job_row(
