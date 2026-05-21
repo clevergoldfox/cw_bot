@@ -33,19 +33,47 @@ function getClient(): JWT {
   return cachedClient;
 }
 
+const EXPECTED_HOST: Record<Channel, string> = {
+  crowdworks: "crowdworks.jp",
+  lancers: "lancers.jp",
+};
+
+/** Extract the URL out of a `=HYPERLINK("url","title")` cell formula. */
+function parseHyperlinkUrl(formula: string): string {
+  const match = /HYPERLINK\("([^"]+)"/i.exec(formula || "");
+  return match ? match[1] : "";
+}
+
+function valuesUrl(range: string, render: "FORMATTED_VALUE" | "FORMULA"): string {
+  return (
+    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}` +
+    `/values/${encodeURIComponent(range)}?valueRenderOption=${render}`
+  );
+}
+
 /**
  * Read one channel's tab. Columns written by the Python watchers are:
  * A datetime · B category · C title · D estimate · E content · F detail url.
  * Returned newest-first.
  */
 export async function readChannel(channel: Channel): Promise<Job[]> {
-  const range = `${TABS[channel]}!A1:F2000`;
-  const url =
-    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}` +
-    `/values/${encodeURIComponent(range)}?valueRenderOption=FORMATTED_VALUE`;
+  const tab = TABS[channel];
+  const client = getClient();
 
-  const res = await getClient().request<{ values?: string[][] }>({ url });
-  const rows = res.data.values || [];
+  // Column F can be stale (e.g. a fill-down overwrote it), so the real detail
+  // link is read from column C's HYPERLINK formula instead.
+  const [fmtRes, formulaRes] = await Promise.all([
+    client.request<{ values?: string[][] }>({
+      url: valuesUrl(`${tab}!A1:F2000`, "FORMATTED_VALUE"),
+    }),
+    client.request<{ values?: string[][] }>({
+      url: valuesUrl(`${tab}!C1:C2000`, "FORMULA"),
+    }),
+  ]);
+
+  const rows = fmtRes.data.values || [];
+  const formulaRows = formulaRes.data.values || [];
+  const expectedHost = EXPECTED_HOST[channel];
 
   const jobs: Job[] = [];
   rows.forEach((row, i) => {
@@ -54,18 +82,25 @@ export async function readChannel(channel: Channel): Promise<Job[]> {
     const title = (row[2] || "").trim();
     const estimate = (row[3] || "").trim();
     const content = row[4] || "";
-    const detailUrl = (row[5] || "").trim();
+    const colF = (row[5] || "").trim();
 
     if (!title) return; // skip blank rows
 
+    const url = parseHyperlinkUrl(formulaRows[i]?.[0] || "") || colF;
+
+    // Guard: never let a mis-filed row leak into the wrong channel.
+    if (url && !url.includes(expectedHost)) return;
+
     jobs.push({
-      id: detailUrl || `${channel}-${i}`,
+      // Row-number based id — unique and stable per row, so React keys never
+      // collide even when several jobs share a URL.
+      id: `${channel}-${i + 1}`,
       datetime,
       category,
       title,
       estimate,
       content,
-      url: detailUrl,
+      url,
       channel,
     });
   });
