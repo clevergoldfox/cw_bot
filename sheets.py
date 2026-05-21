@@ -106,7 +106,7 @@ def _set_row_height(worksheet, append_result) -> None:
 
 def append_job_row(gid: int, category: str, title: str, detail_url: str,
                     estimate: str, content: str) -> bool:
-    """Append one job: [datetime, category, title-link, estimate, content].
+    """Append one job: [datetime, category, title-link, estimate, content, url].
 
     Only ever appends a new row — existing rows are never modified or deleted.
     Returns True if the row was written, False if logging is unavailable.
@@ -124,6 +124,7 @@ def append_job_row(gid: int, category: str, title: str, detail_url: str,
         _hyperlink(detail_url, title),
         estimate or "",
         content or "",
+        detail_url or "",
     ]
     try:
         result = worksheet.append_row(row, value_input_option="USER_ENTERED")
