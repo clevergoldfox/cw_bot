@@ -301,7 +301,7 @@ if __name__ == "__main__":
                 # print("pre_systems", pre_systems)
                 # systems = pre_systems[i%4]
                 # pre_systems[i%4] = []
-                job_data = get_job_data_dict(url=f"https://crowdworks.jp/public/jobs/search?category_id={categories[i%4]}&order=new")
+                job_data = get_job_data_dict(url=f"https://crowdworks.jp/public/jobs/search?category_id={categories[i%4]}&order=new&payment_type=fixed_price%2Chourly")
                 jobs = job_data['searchResult']['job_offers']
                 job_list = []
                 for job in jobs:
